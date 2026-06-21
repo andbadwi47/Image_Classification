@@ -1,12 +1,27 @@
 import streamlit as st
 import tensorflow as tf
-import tempfile
 import numpy as np
 from PIL import Image
+import tempfile
 
-st.title("CT Scan Classification")
+st.set_page_config(
+    page_title="CT Scan Classification",
+    page_icon="🩻",
+    layout="centered"
+)
 
-# Upload model
+st.title("🩻 CT Scan Classification")
+
+st.write("""
+1. Upload file model (.h5)
+2. Upload gambar CT Scan
+3. Sistem akan melakukan prediksi otomatis
+""")
+
+# ==========================
+# Upload Model
+# ==========================
+
 uploaded_model = st.file_uploader(
     "Upload Model (.h5)",
     type=["h5"]
@@ -14,31 +29,116 @@ uploaded_model = st.file_uploader(
 
 if uploaded_model is not None:
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".h5") as tmp:
-        tmp.write(uploaded_model.read())
-        model_path = tmp.name
+    try:
 
-    model = tf.keras.models.load_model(model_path)
+        with tempfile.NamedTemporaryFile(
+            delete=False,
+            suffix=".h5"
+        ) as tmp:
 
-    st.success("Model berhasil dimuat!")
+            tmp.write(uploaded_model.read())
+            model_path = tmp.name
 
-    uploaded_image = st.file_uploader(
-        "Upload CT Scan",
-        type=["jpg", "jpeg", "png"]
-    )
+        model = tf.keras.models.load_model(model_path)
 
-    if uploaded_image is not None:
+        st.success("✅ Model berhasil dimuat")
 
-        image = Image.open(uploaded_image).convert("RGB")
+        st.write("Input Shape Model:")
 
-        st.image(image)
+        st.code(str(model.input_shape))
 
-        img = image.resize((224, 224))
+        # ==========================
+        # Ambil ukuran input model
+        # ==========================
 
-        img = np.array(img) / 255.0
-        img = np.expand_dims(img, axis=0)
+        INPUT_HEIGHT = model.input_shape[1]
+        INPUT_WIDTH = model.input_shape[2]
 
-        prediction = model.predict(img)
+        # ==========================
+        # Upload Gambar
+        # ==========================
 
-        st.write("Prediksi:")
-        st.write(prediction)
+        uploaded_image = st.file_uploader(
+            "Upload CT Scan Image",
+            type=["jpg", "jpeg", "png"]
+        )
+
+        if uploaded_image is not None:
+
+            image = Image.open(uploaded_image).convert("RGB")
+
+            st.image(
+                image,
+                caption="Uploaded Image",
+                use_container_width=True
+            )
+
+            # Resize sesuai model
+            img = image.resize(
+                (INPUT_WIDTH, INPUT_HEIGHT)
+            )
+
+            img = np.array(img)
+
+            img = img.astype(np.float32)
+
+            # Normalisasi
+            img = img / 255.0
+
+            img = np.expand_dims(
+                img,
+                axis=0
+            )
+
+            with st.spinner(
+                "Menganalisis gambar..."
+            ):
+
+                prediction = model.predict(
+                    img,
+                    verbose=0
+                )
+
+            st.subheader("Hasil Prediksi")
+
+            st.write(prediction)
+
+            predicted_class = int(
+                np.argmax(prediction)
+            )
+
+            confidence = float(
+                np.max(prediction)
+            )
+
+            st.success(
+                f"Class Index: {predicted_class}"
+            )
+
+            st.metric(
+                "Confidence",
+                f"{confidence*100:.2f}%"
+            )
+
+            st.subheader(
+                "Probabilitas Tiap Kelas"
+            )
+
+            prob_dict = {}
+
+            for i in range(
+                prediction.shape[1]
+            ):
+                prob_dict[
+                    f"Class {i}"
+                ] = float(
+                    prediction[0][i]
+                )
+
+            st.bar_chart(prob_dict)
+
+    except Exception as e:
+
+        st.error("Terjadi Error")
+
+        st.exception(e)
