@@ -1,8 +1,76 @@
+import os
+import gdown
 import streamlit as st
 import tensorflow as tf
 import numpy as np
 from PIL import Image
-import tempfile
+
+# =====================================
+# KONFIGURASI
+# =====================================
+
+MODEL_PATH = "ct_scan_classifier_model.h5"
+
+# Google Drive File ID
+FILE_ID = "1xVpKk127kd9nYrQs9E9q9ECpmd209Ca0"
+
+# Nama kelas (ubah jika berbeda)
+CLASS_NAMES = [
+    "COVID",
+    "NORMAL",
+    "PNEUMONIA"
+]
+
+# =====================================
+# DOWNLOAD & LOAD MODEL
+# =====================================
+
+@st.cache_resource
+def load_model():
+
+    if not os.path.exists(MODEL_PATH):
+
+        st.info("Mengunduh model dari Google Drive...")
+
+        url = f"https://drive.google.com/uc?id={FILE_ID}"
+
+        gdown.download(
+            url=url,
+            output=MODEL_PATH,
+            quiet=False,
+            fuzzy=True
+        )
+
+    model = tf.keras.models.load_model(MODEL_PATH)
+
+    return model
+
+# =====================================
+# LOAD MODEL
+# =====================================
+
+try:
+
+    model = load_model()
+
+except Exception as e:
+
+    st.error("Gagal memuat model.")
+
+    st.exception(e)
+
+    st.stop()
+
+# =====================================
+# AMBIL UKURAN INPUT MODEL OTOMATIS
+# =====================================
+
+INPUT_HEIGHT = model.input_shape[1]
+INPUT_WIDTH = model.input_shape[2]
+
+# =====================================
+# STREAMLIT UI
+# =====================================
 
 st.set_page_config(
     page_title="CT Scan Classification",
@@ -12,133 +80,120 @@ st.set_page_config(
 
 st.title("🩻 CT Scan Classification")
 
-st.write("""
-1. Upload file model (.h5)
-2. Upload gambar CT Scan
-3. Sistem akan melakukan prediksi otomatis
-""")
-
-# ==========================
-# Upload Model
-# ==========================
-
-uploaded_model = st.file_uploader(
-    "Upload Model (.h5)",
-    type=["h5"]
+st.write(
+    "Upload gambar CT Scan untuk melakukan klasifikasi."
 )
 
-if uploaded_model is not None:
+st.write(
+    f"Input model: {INPUT_HEIGHT} x {INPUT_WIDTH}"
+)
+
+# =====================================
+# UPLOAD GAMBAR
+# =====================================
+
+uploaded_file = st.file_uploader(
+    "Upload CT Scan Image",
+    type=["jpg", "jpeg", "png"]
+)
+
+# =====================================
+# PREDIKSI
+# =====================================
+
+if uploaded_file is not None:
 
     try:
 
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=".h5"
-        ) as tmp:
+        image = Image.open(uploaded_file).convert("RGB")
 
-            tmp.write(uploaded_model.read())
-            model_path = tmp.name
-
-        model = tf.keras.models.load_model(model_path)
-
-        st.success("✅ Model berhasil dimuat")
-
-        st.write("Input Shape Model:")
-
-        st.code(str(model.input_shape))
-
-        # ==========================
-        # Ambil ukuran input model
-        # ==========================
-
-        INPUT_HEIGHT = model.input_shape[1]
-        INPUT_WIDTH = model.input_shape[2]
-
-        # ==========================
-        # Upload Gambar
-        # ==========================
-
-        uploaded_image = st.file_uploader(
-            "Upload CT Scan Image",
-            type=["jpg", "jpeg", "png"]
+        st.image(
+            image,
+            caption="Uploaded Image",
+            use_container_width=True
         )
 
-        if uploaded_image is not None:
+        img = image.resize(
+            (INPUT_WIDTH, INPUT_HEIGHT)
+        )
 
-            image = Image.open(uploaded_image).convert("RGB")
+        img = np.array(img)
 
-            st.image(
-                image,
-                caption="Uploaded Image",
-                use_container_width=True
-            )
+        img = img.astype(np.float32)
 
-            # Resize sesuai model
-            img = image.resize(
-                (INPUT_WIDTH, INPUT_HEIGHT)
-            )
+        img = img / 255.0
 
-            img = np.array(img)
+        img = np.expand_dims(
+            img,
+            axis=0
+        )
 
-            img = img.astype(np.float32)
+        with st.spinner(
+            "Menganalisis gambar..."
+        ):
 
-            # Normalisasi
-            img = img / 255.0
-
-            img = np.expand_dims(
+            prediction = model.predict(
                 img,
-                axis=0
+                verbose=0
             )
 
-            with st.spinner(
-                "Menganalisis gambar..."
-            ):
+        predicted_index = int(
+            np.argmax(prediction)
+        )
 
-                prediction = model.predict(
-                    img,
-                    verbose=0
-                )
+        confidence = float(
+            np.max(prediction)
+        )
 
-            st.subheader("Hasil Prediksi")
+        if predicted_index < len(CLASS_NAMES):
 
-            st.write(prediction)
+            predicted_class = CLASS_NAMES[
+                predicted_index
+            ]
 
-            predicted_class = int(
-                np.argmax(prediction)
+        else:
+
+            predicted_class = (
+                f"Class {predicted_index}"
             )
 
-            confidence = float(
-                np.max(prediction)
+        st.success(
+            f"Prediksi: {predicted_class}"
+        )
+
+        st.metric(
+            "Confidence",
+            f"{confidence*100:.2f}%"
+        )
+
+        st.subheader(
+            "Probabilitas Tiap Kelas"
+        )
+
+        prob_dict = {}
+
+        for i in range(
+            prediction.shape[1]
+        ):
+
+            if i < len(CLASS_NAMES):
+
+                label = CLASS_NAMES[i]
+
+            else:
+
+                label = f"Class {i}"
+
+            prob_dict[label] = float(
+                prediction[0][i]
             )
 
-            st.success(
-                f"Class Index: {predicted_class}"
-            )
-
-            st.metric(
-                "Confidence",
-                f"{confidence*100:.2f}%"
-            )
-
-            st.subheader(
-                "Probabilitas Tiap Kelas"
-            )
-
-            prob_dict = {}
-
-            for i in range(
-                prediction.shape[1]
-            ):
-                prob_dict[
-                    f"Class {i}"
-                ] = float(
-                    prediction[0][i]
-                )
-
-            st.bar_chart(prob_dict)
+        st.bar_chart(prob_dict)
 
     except Exception as e:
 
-        st.error("Terjadi Error")
+        st.error(
+            "Terjadi kesalahan saat prediksi."
+        )
 
         st.exception(e)
