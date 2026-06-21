@@ -1,111 +1,124 @@
 import os
-import gdown
+import requests
 import streamlit as st
 import tensorflow as tf
 import numpy as np
 from PIL import Image
 
-# =====================================
+# =====================================================
 # KONFIGURASI
-# =====================================
+# =====================================================
 
 MODEL_PATH = "ct_scan_classifier_model.h5"
 
-# Google Drive File ID
-FILE_ID = "https://drive.google.com/file/d/1xVpKk127kd9nYrQs9E9q9ECpmd209Ca0/view?usp=drive_link"
+# File ID Google Drive Anda
+FILE_ID = "1xVpKk127kd9nYrQs9E9q9ECpmd209Ca0"
 
-# Nama kelas (ubah jika berbeda)
 CLASS_NAMES = [
     "COVID",
     "NORMAL",
     "PNEUMONIA"
 ]
 
-# =====================================
-# DOWNLOAD & LOAD MODEL
-# =====================================
+# =====================================================
+# DOWNLOAD MODEL DARI GOOGLE DRIVE
+# =====================================================
+
+def download_model():
+
+    if os.path.exists(MODEL_PATH):
+        return
+
+    st.info("Mengunduh model dari Google Drive...")
+
+    url = f"https://drive.google.com/uc?export=download&id={FILE_ID}"
+
+    response = requests.get(url, stream=True)
+
+    response.raise_for_status()
+
+    with open(MODEL_PATH, "wb") as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                f.write(chunk)
+
+# =====================================================
+# LOAD MODEL
+# =====================================================
 
 @st.cache_resource
 def load_model():
 
-    if not os.path.exists(MODEL_PATH):
-
-        st.info("Mengunduh model dari Google Drive...")
-
-        url = f"https://drive.google.com/uc?id={FILE_ID}"
-
-        gdown.download(
-            url=url,
-            output=MODEL_PATH,
-            quiet=False,
-            fuzzy=True
-        )
+    download_model()
 
     model = tf.keras.models.load_model(MODEL_PATH)
 
     return model
 
-# =====================================
-# LOAD MODEL
-# =====================================
-
-try:
-
-    model = load_model()
-
-except Exception as e:
-
-    st.error("Gagal memuat model.")
-
-    st.exception(e)
-
-    st.stop()
-
-# =====================================
-# AMBIL UKURAN INPUT MODEL OTOMATIS
-# =====================================
-
-INPUT_HEIGHT = model.input_shape[1]
-INPUT_WIDTH = model.input_shape[2]
-
-# =====================================
+# =====================================================
 # STREAMLIT UI
-# =====================================
+# =====================================================
 
 st.set_page_config(
     page_title="CT Scan Classification",
-    page_icon="🩻",
-    layout="centered"
+    page_icon="🩻"
 )
 
 st.title("🩻 CT Scan Classification")
 
 st.write(
-    "Upload gambar CT Scan untuk melakukan klasifikasi."
+    "Upload gambar CT Scan untuk dilakukan klasifikasi."
 )
+
+# =====================================================
+# LOAD MODEL
+# =====================================================
+
+try:
+
+    model = load_model()
+
+    st.success("Model berhasil dimuat")
+
+except Exception as e:
+
+    st.error("Gagal memuat model")
+
+    st.exception(e)
+
+    st.stop()
+
+# =====================================================
+# AMBIL UKURAN INPUT OTOMATIS
+# =====================================================
+
+INPUT_HEIGHT = model.input_shape[1]
+INPUT_WIDTH = model.input_shape[2]
 
 st.write(
-    f"Input model: {INPUT_HEIGHT} x {INPUT_WIDTH}"
+    f"Ukuran input model: {INPUT_HEIGHT} x {INPUT_WIDTH}"
 )
 
-# =====================================
+# =====================================================
 # UPLOAD GAMBAR
-# =====================================
+# =====================================================
 
 uploaded_file = st.file_uploader(
-    "Upload CT Scan Image",
+    "Upload CT Scan",
     type=["jpg", "jpeg", "png"]
 )
 
-# =====================================
+# =====================================================
 # PREDIKSI
-# =====================================
+# =====================================================
 
 if uploaded_file is not None:
 
     try:
 
-        image = Image.open(uploaded_file).convert("RGB")
+        image = Image.open(
+            uploaded_file
+        ).convert("RGB")
 
         st.image(
             image,
@@ -170,7 +183,7 @@ if uploaded_file is not None:
             "Probabilitas Tiap Kelas"
         )
 
-        prob_dict = {}
+        chart_data = {}
 
         for i in range(
             prediction.shape[1]
@@ -184,11 +197,11 @@ if uploaded_file is not None:
 
                 label = f"Class {i}"
 
-            prob_dict[label] = float(
+            chart_data[label] = float(
                 prediction[0][i]
             )
 
-        st.bar_chart(prob_dict)
+        st.bar_chart(chart_data)
 
     except Exception as e:
 
