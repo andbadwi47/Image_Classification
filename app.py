@@ -4,22 +4,25 @@ import streamlit as st
 import tensorflow as tf
 import numpy as np
 import pandas as pd
+
 from PIL import Image
+from tensorflow.keras.applications.efficientnet import preprocess_input
 
 # =====================================================
 # KONFIGURASI
 # =====================================================
 
 MODEL_PATH = "ct_scan_classifier_model.h5"
-
-# File ID Google Drive Anda
 FILE_ID = "https://drive.google.com/file/d/1xVpKk127kd9nYrQs9E9q9ECpmd209Ca0/view?usp=drive_link"
 
+# SESUAIKAN JIKA URUTAN KELAS ASLI BERBEDA
 CLASS_NAMES = [
     "COVID",
     "NORMAL",
     "PNEUMONIA"
 ]
+
+IMG_SIZE = (227, 227)
 
 # =====================================================
 # DOWNLOAD MODEL
@@ -30,27 +33,16 @@ def download_model():
     if os.path.exists(MODEL_PATH):
         return
 
-    st.warning("⬇️ Model belum tersedia, mengunduh dari Google Drive...")
-
     url = f"https://drive.google.com/uc?export=download&id={FILE_ID}"
 
-    response = requests.get(
-        url,
-        stream=True
-    )
+    response = requests.get(url, stream=True)
 
     response.raise_for_status()
 
-    with open(MODEL_PATH, "wb") as file:
-
-        for chunk in response.iter_content(
-            chunk_size=8192
-        ):
-
+    with open(MODEL_PATH, "wb") as f:
+        for chunk in response.iter_content(8192):
             if chunk:
-                file.write(chunk)
-
-    st.success("✅ Download model selesai")
+                f.write(chunk)
 
 # =====================================================
 # LOAD MODEL
@@ -62,13 +54,53 @@ def load_model():
     download_model()
 
     model = tf.keras.models.load_model(
-        MODEL_PATH
+        MODEL_PATH,
+        compile=False
     )
 
     return model
 
 # =====================================================
-# PAGE CONFIG
+# PREDIKSI
+# =====================================================
+
+def predict_image(image):
+
+    image = image.convert("RGB")
+
+    image = image.resize(IMG_SIZE)
+
+    img = np.array(image)
+
+    img = np.expand_dims(img, axis=0)
+
+    img = preprocess_input(img)
+
+    prediction = model.predict(
+        img,
+        verbose=0
+    )
+
+    predicted_index = int(
+        np.argmax(prediction)
+    )
+
+    confidence = float(
+        np.max(prediction)
+    )
+
+    predicted_class = CLASS_NAMES[
+        predicted_index
+    ]
+
+    return (
+        predicted_class,
+        confidence,
+        prediction[0]
+    )
+
+# =====================================================
+# STREAMLIT
 # =====================================================
 
 st.set_page_config(
@@ -79,10 +111,6 @@ st.set_page_config(
 
 st.title("🩻 CT Scan Classification System")
 
-st.write(
-    "Upload satu atau beberapa gambar CT Scan untuk dilakukan klasifikasi."
-)
-
 # =====================================================
 # LOAD MODEL
 # =====================================================
@@ -91,22 +119,15 @@ try:
 
     model = load_model()
 
-    st.success("✅ Model berhasil dimuat")
-
-    if os.path.exists(MODEL_PATH):
-
-        file_size = (
-            os.path.getsize(MODEL_PATH)
-            / (1024 * 1024)
-        )
-
-        st.info(
-            f"📦 Model tersedia ({file_size:.2f} MB)"
-        )
+    st.success(
+        "✅ Model berhasil dimuat"
+    )
 
 except Exception as e:
 
-    st.error("❌ Gagal memuat model")
+    st.error(
+        "❌ Gagal memuat model"
+    )
 
     st.exception(e)
 
@@ -116,19 +137,20 @@ except Exception as e:
 # INFO MODEL
 # =====================================================
 
-INPUT_HEIGHT = model.input_shape[1]
-INPUT_WIDTH = model.input_shape[2]
-
-st.write(
-    f"Input Shape : {model.input_shape}"
+st.sidebar.success(
+    "🟢 Model Ready"
 )
 
-st.write(
-    f"Output Shape : {model.output_shape}"
+st.sidebar.write(
+    f"Input Shape: {model.input_shape}"
+)
+
+st.sidebar.write(
+    f"Output Shape: {model.output_shape}"
 )
 
 # =====================================================
-# UPLOAD FILE
+# UPLOAD MULTIPLE FILES
 # =====================================================
 
 uploaded_files = st.file_uploader(
@@ -138,118 +160,75 @@ uploaded_files = st.file_uploader(
 )
 
 # =====================================================
-# PREDIKSI
+# ANALISIS
 # =====================================================
 
 if uploaded_files:
 
     st.info(
-        f"📂 {len(uploaded_files)} gambar dipilih"
+        f"{len(uploaded_files)} gambar dipilih"
     )
 
-    if st.button("🔍 Mulai Analisis"):
+    if st.button(
+        "🔍 Mulai Analisis"
+    ):
 
         results = []
 
-        progress = st.progress(0)
-
-        for idx, uploaded_file in enumerate(
-            uploaded_files
-        ):
+        for file in uploaded_files:
 
             try:
 
-                image = Image.open(
-                    uploaded_file
-                ).convert("RGB")
+                image = Image.open(file)
 
-                img = image.resize(
-                    (
-                        INPUT_WIDTH,
-                        INPUT_HEIGHT
-                    )
-                )
-
-                img = np.array(img)
-
-                img = img.astype(
-                    np.float32
-                )
-
-                img = img / 255.0
-
-                img = np.expand_dims(
-                    img,
-                    axis=0
-                )
-
-                prediction = model.predict(
-                    img,
-                    verbose=0
-                )
-
-                predicted_index = int(
-                    np.argmax(prediction)
-                )
-
-                confidence = float(
-                    np.max(prediction)
-                )
-
-                if predicted_index < len(
-                    CLASS_NAMES
-                ):
-
-                    predicted_class = (
-                        CLASS_NAMES[
-                            predicted_index
-                        ]
-                    )
-
-                else:
-
-                    predicted_class = (
-                        f"Class {predicted_index}"
-                    )
-
-                results.append(
-                    {
-                        "File":
-                            uploaded_file.name,
-                        "Prediction":
-                            predicted_class,
-                        "Confidence (%)":
-                            round(
-                                confidence
-                                * 100,
-                                2
-                            )
-                    }
+                predicted_class, confidence, probs = predict_image(
+                    image
                 )
 
                 st.image(
                     image,
-                    caption=
-                    f"{uploaded_file.name} → {predicted_class}",
-                    width=250
+                    caption=f"{file.name} → {predicted_class}",
+                    width=300
                 )
+
+                with st.expander(
+                    f"Detail {file.name}"
+                ):
+
+                    st.write(
+                        "Raw Prediction:",
+                        probs
+                    )
+
+                    st.write(
+                        {
+                            CLASS_NAMES[i]:
+                            float(probs[i])
+                            for i in range(
+                                len(CLASS_NAMES)
+                            )
+                        }
+                    )
+
+                results.append({
+                    "File":
+                        file.name,
+                    "Prediction":
+                        predicted_class,
+                    "Confidence (%)":
+                        round(
+                            confidence * 100,
+                            2
+                        )
+                })
 
             except Exception as e:
 
                 st.error(
-                    f"Error pada file: {uploaded_file.name}"
+                    f"Error pada {file.name}"
                 )
 
                 st.exception(e)
-
-            progress.progress(
-                (idx + 1)
-                / len(uploaded_files)
-            )
-
-        st.success(
-            "✅ Analisis selesai"
-        )
 
         st.subheader(
             "📋 Hasil Klasifikasi"
@@ -263,11 +242,10 @@ if uploaded_files:
         )
 
         st.download_button(
-            label="📥 Download Hasil CSV",
+            "📥 Download CSV",
             data=df.to_csv(
                 index=False
             ),
-            file_name=
-            "hasil_klasifikasi.csv",
+            file_name="hasil_prediksi.csv",
             mime="text/csv"
         )
