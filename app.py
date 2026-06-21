@@ -12,7 +12,7 @@ from PIL import Image
 MODEL_PATH = "ct_scan_classifier_model.h5"
 
 # File ID Google Drive Anda
-FILE_ID = "1xVpKk127kd9nYrQs9E9q9ECpmd209Ca0"
+FILE_ID = "https://drive.google.com/file/d/1xVpKk127kd9nYrQs9E9q9ECpmd209Ca0/view?usp=drive_link"
 
 CLASS_NAMES = [
     "COVID",
